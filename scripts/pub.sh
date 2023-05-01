@@ -16,3 +16,4 @@ npm run build
 
 echo [push package to npm]
 npm publish
+

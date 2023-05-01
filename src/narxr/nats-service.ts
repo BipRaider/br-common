@@ -216,10 +216,10 @@ export class NatsService extends NatsHelpers {
       try {
         if (!this.#nats) throw new Error('Nats is not connect');
 
-        await this.#nats.flush();
         const encodeDat = NatsService.encode(data);
         const msg: Msg = await this.#nats.request(subject, encodeDat, options);
         const payload = NatsService.decode<T>(msg.data);
+        await this.#nats.flush();
         res(payload);
       } catch {
         res(null);
