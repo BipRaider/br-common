@@ -22,7 +22,7 @@ export class NatsService extends NatsHelpers {
     servers: ['http://localhost:4222', 'nats://localhost:4222', 'nats://nats:4222'],
   };
   /** All Subscriptions.*/
-  public subscriptions: Map<string, Subscription> = new Map();
+  public subscriptions: Map<string, Subscription | undefined> = new Map();
 
   constructor(opt?: ConnectionOptions) {
     super();
@@ -96,6 +96,7 @@ export class NatsService extends NatsHelpers {
    *```
    */
   public data = async (sub: Subscription, fn: Function): Promise<void> => {
+    if (!sub) return;
     for await (const m of sub) {
       const payload = NatsService.decode(m.data);
       if (payload && fn) {

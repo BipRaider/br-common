@@ -2,8 +2,11 @@
 echo [Git add ]
 git add .
 
+echo "Add a message to a commit?"
+read namespace
+
 echo [Git commit]
-git commit -m "Updates"
+git commit -m "Updates into package. ${namespace}"
 
 echo [up version package]
 npm version patch
