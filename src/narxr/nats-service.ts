@@ -256,6 +256,7 @@ export class NatsService extends NatsHelpers {
       if (!this.#nats) throw new Error('Nats is not connect');
 
       const sub = this.#nats.subscribe(subject, options);
+      if (sub) this.subscriptions.set(subject, sub);
 
       for await (const msg of sub) {
         if (!fn) return;
