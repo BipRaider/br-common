@@ -1,6 +1,6 @@
 {
   "name": "@bipdev/common",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Express helpers and middleware",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
