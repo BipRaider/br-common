@@ -22,7 +22,7 @@ export class NatsService extends NatsHelpers {
     servers: ['http://localhost:4222', 'nats://localhost:4222', 'nats://nats:4222'],
   };
   /** All Subscriptions.*/
-  public subscriptions: Map<string, Subscription | undefined> = new Map();
+  #subscriptions: Map<string, Subscription | undefined> = new Map();
 
   constructor(opt?: ConnectionOptions) {
     super();
@@ -86,6 +86,32 @@ export class NatsService extends NatsHelpers {
       this.subject.push(subj);
     }
   }
+
+  /*** Get subscription form queue. */
+  public async getSub(subjName: string): Promise<Subscription | undefined> {
+    let subj = this.#subscriptions.get(subjName);
+
+    if (!subj) {
+      await this.init();
+      subj = this.#subscriptions.get(subjName);
+    }
+
+    return subj;
+  }
+
+  /*** Delete subscription from queue. */
+  public async delSub(subjName: string): Promise<boolean> {
+    let subj: Subscription | undefined = this.#subscriptions.get(subjName);
+    let subjClose = false;
+    if (subj) {
+      await subj.drain();
+      subjClose = subj.isClosed();
+    }
+    this.#subscriptions.delete(subjName);
+
+    return subjClose as boolean;
+  }
+
   /*** Processing `data` from `natsServer.sub("some name") function`.
    *```ts
    * const natsServer = new NatsService({servers: 'http://localhost:4222'})
@@ -99,6 +125,7 @@ export class NatsService extends NatsHelpers {
     if (!sub) return;
     for await (const m of sub) {
       const payload = NatsService.decode(m.data);
+
       if (payload && fn) {
         fn({
           sub_catcher: sub.getSubject(),
@@ -134,7 +161,7 @@ export class NatsService extends NatsHelpers {
     if (!this.#nats) return null;
 
     const sub = this.#nats.subscribe(subject, options || {});
-    if (sub) this.subscriptions.set(subject, sub);
+    if (sub) this.#subscriptions.set(subject, sub);
 
     return sub;
   };
@@ -163,9 +190,9 @@ export class NatsService extends NatsHelpers {
     try {
       if (!this.#nats) throw new Error('Nats is not connect');
 
+      await this.#nats.flush();
       const encodeData = NatsService.encode(data);
       this.#nats.publish(subject, encodeData, options);
-      await this.#nats.flush();
     } catch {
       setTimeout(() => {
         this.pub(subject, data, options);
@@ -216,10 +243,10 @@ export class NatsService extends NatsHelpers {
       try {
         if (!this.#nats) throw new Error('Nats is not connect');
 
+        await this.#nats.flush();
         const encodeDat = NatsService.encode(data);
         const msg: Msg = await this.#nats.request(subject, encodeDat, options);
         const payload = NatsService.decode<T>(msg.data);
-        await this.#nats.flush();
         res(payload);
       } catch {
         res(null);
@@ -257,7 +284,7 @@ export class NatsService extends NatsHelpers {
       if (!this.#nats) throw new Error('Nats is not connect');
 
       const sub = this.#nats.subscribe(subject, options);
-      if (sub) this.subscriptions.set(subject, sub);
+      if (sub) this.#subscriptions.set(subject, sub);
 
       for await (const msg of sub) {
         if (!fn) return;
