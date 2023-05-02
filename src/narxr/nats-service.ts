@@ -9,23 +9,26 @@ import {
   headers,
   MsgHdrs,
   SubscriptionOptions,
+  NatsError,
 } from 'nats';
 
 import { NatsHelpers } from './nats-helper';
 import { HeadersFn, NatsResponse, SubjectOpt } from './types';
 
-export class NatsService extends NatsHelpers {
+export class NatsService {
   #nats: NatsConnection | undefined = undefined;
   public serverName: string = '';
   public subject: SubjectOpt[] = [];
   private opt: ConnectionOptions = {
     servers: ['http://localhost:4222', 'nats://localhost:4222', 'nats://nats:4222'],
+    maxReconnectAttempts: -1,
+    waitOnFirstConnect: true,
   };
   /** All Subscriptions.*/
   #subscriptions: Map<string, Subscription | undefined> = new Map();
-
+  /*** Writes to the console about `Error`. `Default: true` */
+  public isViewError: boolean = true;
   constructor(opt?: ConnectionOptions) {
-    super();
     this.opt = { ...this.opt, ...opt };
     this.connect();
   }
@@ -38,11 +41,12 @@ export class NatsService extends NatsHelpers {
       console.log(`Connected to listener ${this.#nats.getServer()}`);
       await this.init();
     } catch {
-      console.log(`Error connection to server sub: ${this.opt.servers}`);
+      console.error(`Error connection to server sub: ${this.opt.servers}`);
     }
   };
 
   private init = async (): Promise<void> => {
+    if (!this.#nats) return;
     if (this.subject.length === 0) return;
     for await (const { subject, options, fn } of this.subject) {
       if (typeof subject === 'string') {
@@ -52,6 +56,13 @@ export class NatsService extends NatsHelpers {
       }
     }
     this.subject = [];
+  };
+
+  private errorHandler = (err: unknown, subject: string, view: boolean = true): void => {
+    if (view && this.isViewError) {
+      if (err instanceof NatsError) console.error(`[${subject}] Nats is ${err.message.toLowerCase()}`);
+      else if (err instanceof Error) console.error(err.message);
+    }
   };
 
   /**
@@ -125,8 +136,7 @@ export class NatsService extends NatsHelpers {
   public data = async (sub: Subscription, fn: Function): Promise<void> => {
     if (!sub) return;
     for await (const m of sub) {
-      const payload = NatsService.decode(m.data);
-
+      const payload = NatsHelpers.decode(m.data);
       if (payload && fn) {
         fn({
           sub_catcher: sub.getSubject(),
@@ -134,11 +144,12 @@ export class NatsService extends NatsHelpers {
           payload,
           headers: m.headers,
           reply: m.reply,
-          res: (data: unknown, opts: PublishOptions = {}): true | false | null => {
+          res: (data: unknown, opts: PublishOptions = {}): boolean | null => {
             try {
-              const payload = NatsService.encode(data);
+              const payload = NatsHelpers.encode(data);
               return m.respond(payload, opts && opts);
-            } catch {
+            } catch (e) {
+              this.errorHandler(e, m.subject);
               return null;
             }
           },
@@ -187,17 +198,17 @@ export class NatsService extends NatsHelpers {
     data: unknown,
     /*** The PublishOptions */
     options: PublishOptions = {},
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     try {
       if (!this.#nats) throw new Error('Nats is not connect');
 
       await this.#nats.flush();
-      const encodeData = NatsService.encode(data);
+      const encodeData = NatsHelpers.encode(data);
       this.#nats.publish(subject, encodeData, options);
-    } catch {
-      setTimeout(() => {
-        this.pub(subject, data, options);
-      }, 200);
+      return true;
+    } catch (e) {
+      this.errorHandler(e, subject);
+      return false;
     }
   };
 
@@ -243,13 +254,14 @@ export class NatsService extends NatsHelpers {
     return new Promise(async res => {
       try {
         if (!this.#nats) throw new Error('Nats is not connect');
-
         await this.#nats.flush();
-        const encodeDat = NatsService.encode(data);
+        const encodeDat = NatsHelpers.encode(data);
         const msg: Msg = await this.#nats.request(subject, encodeDat, options);
-        const payload = NatsService.decode<T>(msg.data);
+        const payload = NatsHelpers.decode<T>(msg.data);
         res(payload);
-      } catch {
+      } catch (e) {
+        this.errorHandler(e, subject);
+
         res(null);
       }
     });
@@ -282,23 +294,26 @@ export class NatsService extends NatsHelpers {
    */
   public res = async ({ fn, subject, reply, options }: NatsResponse): Promise<void> => {
     try {
-      if (!this.#nats) throw new Error('Nats is not connect');
-
-      const sub = this.#nats.subscribe(subject, options);
+      let sub = this.sub({ subject, options });
       if (sub) this.#subscriptions.set(subject, sub);
+      if (!sub) {
+        this.subs = { subject, options, fn };
+        throw new Error('Subscription not found.');
+      }
 
       for await (const msg of sub) {
         if (!fn) return;
         if (subject !== msg.subject) return;
         if (reply !== msg.reply) return;
 
-        const payload = NatsService.decode(msg.data);
+        const payload = NatsHelpers.decode(msg.data);
 
-        const res = (data: unknown = null, opts: PublishOptions = {}): true | false | null => {
+        const res = (data: unknown = null, opts: PublishOptions = {}): boolean | null => {
           try {
-            const payload = NatsService.encode(data);
+            const payload = NatsHelpers.encode(data);
             return msg.respond(payload, { reply, ...opts });
-          } catch {
+          } catch (e) {
+            this.errorHandler(e, subject);
             return null;
           }
         };
@@ -312,12 +327,11 @@ export class NatsService extends NatsHelpers {
           res,
         });
       }
-    } catch {
-      setTimeout(() => {
-        this.res({ fn, subject, reply, options });
-      }, 200);
+    } catch (e) {
+      this.errorHandler(e, subject);
     }
   };
+
   /*** The function for add some params to the headers to
    * {@link PublishOptions},
    * {@link SubscriptionOptions},
@@ -332,6 +346,7 @@ export class NatsService extends NatsHelpers {
     head.append('serverName', this.serverName);
     return head;
   };
+
   /*** The function for add some params by using `Object` to the headers to
    * {@link PublishOptions},
    * {@link SubscriptionOptions},

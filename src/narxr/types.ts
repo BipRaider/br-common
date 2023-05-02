@@ -12,16 +12,18 @@ export interface SubscriptionData<T = unknown> extends Pick<Msg, 'headers' | 're
 }
 
 export type HeadersFn = typeof headers;
-export type SubjectFn<T = any> = (subjData: SubscriptionData<T>) => SubscriptionData | Promise<SubscriptionData>;
+export type NatsSubjectFn<T = any> = (
+  subjData: SubscriptionData<T>,
+) => SubscriptionData | Promise<SubscriptionData> | Promise<void>;
+export type NatsResponseFn<T = any> = (subjData: SubscriptionData<T>) => Promise<void>;
+
 export type SubjectOpt = {
   /*** Who should listen into network. */
   subject: string;
   options?: SubscriptionOptions;
-  /*** The function works with data. {@link SubjectFn} */
-  fn?: SubjectFn;
+  /*** The function works with data. {@link SubjectFn } */
+  fn?: NatsSubjectFn;
 };
-
-export type NatsResponseFn<T = any> = (subjData: SubscriptionData<T>) => Promise<void>;
 
 export interface NatsResponse {
   /*** Who should listen into network.
@@ -30,6 +32,6 @@ export interface NatsResponse {
   /*** The name to which the response should be returned. */
   reply: string;
   options?: SubscriptionOptions;
-  /*** The function works with data. {@link NatsResponseFn} */
+  /*** The function works with data. {@link NatsResponseFn } */
   fn?: NatsResponseFn;
 }
