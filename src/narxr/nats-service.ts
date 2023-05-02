@@ -43,14 +43,15 @@ export class NatsService extends NatsHelpers {
   };
 
   private init = async (): Promise<void> => {
+    if (this.subject.length === 0) return;
     for await (const { subject, options, fn } of this.subject) {
       if (typeof subject === 'string') {
+        console.log(`Listen: ${subject}`);
         const sub = this.sub({ subject, options });
         if (sub && fn) this.data(sub, fn);
       }
     }
     this.subject = [];
-    console.log(`Init list subscribers.`);
   };
 
   /**
