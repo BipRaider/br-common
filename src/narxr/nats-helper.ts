@@ -1,17 +1,9 @@
 import { Codec, StringCodec } from 'nats';
+import { INatsHelpers } from './interface';
 
-export class NatsHelpers {
-  /**Returns a {@link Codec} for encoding strings to a message payload and decoding message payloads into strings. */
+export class NatsHelpers implements INatsHelpers {
   public static uint8: Codec<string> = StringCodec();
 
-  /*** `Decode` the data from `Msg`.
-   *```ts
-   * const natsServer = new NatsService({servers: 'http://localhost:4222'})
-   * const encodeData: Uint8Array = natsServer.encode("some data")
-   * const data: string = natsServer.decode(encodeDat)
-   * console.log(data) // "some data"
-   *```
-   */
   public static decode = <T>(
     /*** Getting data from Msg as the `Uint8Array` forma and decode it.*/
     code: Uint8Array,
@@ -24,13 +16,6 @@ export class NatsHelpers {
     return JSON.parse(payload);
   };
 
-  /*** `Encode` data for `Msg`.
-   * ```ts
-   * const natsServer = new NatsService({servers: 'http://localhost:4222'})
-   * const encodeData: Uint8Array = natsServer.encode("some data")
-   * console.log(encodeData)
-   * ```
-   */
   public static encode = (
     /*** Getting data and encoding it into `Uint8Array` format.*/
     data: unknown,
@@ -42,7 +27,6 @@ export class NatsHelpers {
     return NatsHelpers.uint8.encode(data);
   };
 
-  /*** Validate `string` on the JSON format. */
   public static isJsonString = (str: string): boolean => {
     try {
       JSON.parse(str);

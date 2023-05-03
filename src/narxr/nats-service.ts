@@ -14,20 +14,23 @@ import {
 
 import { NatsHelpers } from './nats-helper';
 import { HeadersFn, NatsResponse, SubjectOpt } from './types';
+import { INatsService } from './interface';
 
-export class NatsService {
+export class NatsService implements INatsService {
   #nats: NatsConnection | undefined = undefined;
-  public serverName: string = '';
-  public subject: SubjectOpt[] = [];
+  /** All Subscriptions.*/
+  #subscriptions: Map<string, Subscription | undefined> = new Map();
+
   private opt: ConnectionOptions = {
     servers: ['http://localhost:4222', 'nats://localhost:4222', 'nats://nats:4222'],
     maxReconnectAttempts: -1,
     waitOnFirstConnect: true,
   };
-  /** All Subscriptions.*/
-  #subscriptions: Map<string, Subscription | undefined> = new Map();
-  /*** Writes to the console about `Error`. `Default: true` */
+
+  public serverName: string = '';
+  public subject: SubjectOpt[] = [];
   public isViewError: boolean = true;
+
   constructor(opt?: ConnectionOptions) {
     this.opt = { ...this.opt, ...opt };
     this.connect();
@@ -65,25 +68,10 @@ export class NatsService {
     }
   };
 
-  /**
-   * Get connection property the nats.
-   */
   public get NC(): NatsConnection | undefined {
     return this.#nats;
   }
 
-  /*** Add subscribers for listing and they params
-   *```ts
-   * const natsServer = new NatsService({servers: 'http://localhost:4222'})
-   * natsServer.subs = {
-        subject: 'api.v3.hello',
-        options: { queue: 'listener' },
-        fn:(data:SubscriptionData<string>): Promise<void> => {
-          console.log(data.payload)
-        })
-      };
-   *```
-   */
   public set subs(subj: SubjectOpt | SubjectOpt[]) {
     if (Array.isArray(subj)) {
       for (const s of subj) {
@@ -99,7 +87,6 @@ export class NatsService {
     }
   }
 
-  /*** Get subscription form queue. */
   public async getSub(subjName: string): Promise<Subscription | undefined> {
     let subj = this.#subscriptions.get(subjName);
 
@@ -111,7 +98,6 @@ export class NatsService {
     return subj;
   }
 
-  /*** Delete subscription from queue. */
   public async delSub(subjName: string): Promise<boolean> {
     let subj: Subscription | undefined = this.#subscriptions.get(subjName);
     let subjClose = false;
@@ -124,15 +110,6 @@ export class NatsService {
     return subjClose as boolean;
   }
 
-  /*** Processing `data` from `natsServer.sub("some name") function`.
-   *```ts
-   * const natsServer = new NatsService({servers: 'http://localhost:4222'})
-   * const sub: Subscription | null = natsServer.sub("some name")
-   * natsServer.data(sub, (data:SubscriptionData<string>): Promise<void> => {
-   *  console.log(data.payload)
-   * })
-   *```
-   */
   public data = async (sub: Subscription, fn: Function): Promise<void> => {
     if (!sub) return;
     for await (const m of sub) {
@@ -158,16 +135,6 @@ export class NatsService {
     }
   };
 
-  /*** Subscribe to listen.
-   **  For processing the data. Need to provided the data to function from NatsServer.data()
-   *```ts
-   * const natsServer = new NatsService({servers: 'http://localhost:4222'})
-   * const sub: Subscription | null = natsServer.sub("some name")
-   * natsServer.data(sub, (data:SubscriptionData<string>): Promise<void> => {
-   *  console.log(data.payload)
-   * })
-   *```
-   */
   public sub = ({ subject, options }: SubjectOpt): Subscription | null => {
     if (typeof subject !== 'string') return null;
     if (!this.#nats) return null;
@@ -178,19 +145,6 @@ export class NatsService {
     return sub;
   };
 
-  /*** Push data to network.
-   * ```ts
-   * const natsService = new NatsService({
-        servers: 'http://localhost:4222',
-        name: 'publish',
-      });
-   *
-   * const fn = () => {
-   *   natsService.pub('api.v3.hello', 'PONG 1', { reply: 'listener-v2' });
-    }
-    fn();
-   * ```
-   */
   public pub = async (
     /*** Who should listen into network. */
     subject: string,
@@ -212,35 +166,6 @@ export class NatsService {
     }
   };
 
-  /*** Catch all subscribes into network with the same name.
-   ** Answer send only one a subscriber from all subscribers!
-   * ```ts
-   * const natsService = new NatsService({
-        servers: 'http://localhost:4222',
-        name: 'publish',
-      });
-   *
-   * const fn = () => {
-   *   const data = await natsService.req(
-            'api.v2.hello',
-            {
-              sender: 'V2',
-              message: 'Hello listener V1',
-              time: new Date().toUTCString(),
-            },
-            {
-              reply: 'listener-v2',
-              timeout: 3000,
-              noMux: true,
-              headers: natsService.headers(),
-            },
-          );
-      return data
-    }
-
-    fn();
-   * ```
-   */
   public req = async <T>(
     /*** Who should listen into network. */
     subject: string,
@@ -267,31 +192,6 @@ export class NatsService {
     });
   };
 
-  /*** Catch Req and processes the data.
-   ** Where the `subject` should be with the same name that in `Msg`
-   ** Where the `reply` should be with the same data that in `Msg`
-   * ```ts
-   *const natsService = new NatsService({
-        servers: 'http://localhost:4222',
-        name: 'publish',
-      });
-   *
-    natsService.res({
-        subject: 'api.v1.hello',
-        reply: 'listener-v1',
-        options: { queue: 'publish' },
-        fn: async (data: SubscriptionData<string>): Promise<void> => {
-          data.res({
-            sender: 'V2',
-            message: 'My answer to you. [V1]',
-            time: new Date().toUTCString(),
-          });
-
-          console.log(`Publish:`, data.payload);
-        },
-    });
-   * ```
-   */
   public res = async ({ fn, subject, reply, options }: NatsResponse): Promise<void> => {
     try {
       let sub = this.sub({ subject, options });
@@ -332,30 +232,12 @@ export class NatsService {
     }
   };
 
-  /*** The function for add some params to the headers to
-   * {@link PublishOptions},
-   * {@link SubscriptionOptions},
-   * {@link RequestOptions}
-   *```ts
-   * const natsServer = new NatsService({servers: 'http://localhost:4222'})
-   * const headers: MsgHdrs = natsService.headers()
-   *```
-   */
   public headers: HeadersFn = (code?: number, description?: string): MsgHdrs => {
     const head = headers(code, description);
     head.append('serverName', this.serverName);
     return head;
   };
 
-  /*** The function for add some params by using `Object` to the headers to
-   * {@link PublishOptions},
-   * {@link SubscriptionOptions},
-   * {@link RequestOptions}
-   *```ts
-   * const natsServer = new NatsService({servers: 'http://localhost:4222'})
-   * const headers: MsgHdrs = natsService.headerAddParams({name: "name",someCode: "As394dfhH"})
-   *```
-   */
   public headerAddParams = (params: Record<string, string>, code?: number, description?: string): MsgHdrs => {
     const head = this.headers(code, description);
     for (const key in params) {
